@@ -3,3 +3,5 @@ uvicorn[standard]==0.30.1
 numpy
 opencv-python
 fer==22.4.0
+tensorflow==2.15.0
+pandas

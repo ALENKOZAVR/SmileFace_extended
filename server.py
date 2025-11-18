@@ -10,7 +10,16 @@ from fer import FER
 
 # ---------------- CONFIG ----------------
 PORT = 8000
-THRESHOLD = 0.5            # порог зачёта эмоции
+# Индивидуальные пороги для каждой эмоции (сложные эмоции - ниже порог)
+EMOTION_THRESHOLDS = {
+    "angry":    0.35,  # злость сложно изобразить - низкий порог
+    "disgust":  0.4,   # отвращение тоже сложно
+    "fear":     0.4,   # страх сложно
+    "happy":    0.5,   # счастье легко - обычный порог
+    "neutral":  0.45,  # нейтрально довольно легко
+    "sad":      0.45,  # грусть средняя сложность
+    "surprise": 0.5,   # удивление легко
+}
 CONSECUTIVE_NEEDED = 3     # подряд кадров для зачёта
 FRAME_DOWNSCALE = 0.75     # уменьшаем кадр для скорости
 GAME_DURATION = 60.0       # секунд
@@ -20,10 +29,12 @@ def now(): return _time.monotonic()
 # --------- Эмоции/смайлы ----------
 EMOJI_MAP = {
     "angry":    {"emoji": "😡", "title": "Гнев"},
+    "disgust":  {"emoji": "🤢", "title": "Отвращение"},
+    "fear":     {"emoji": "😨", "title": "Страх"},
     "happy":    {"emoji": "😀", "title": "Счастье"},
+    "neutral":  {"emoji": "😐", "title": "Нейтрально"},
     "sad":      {"emoji": "😢", "title": "Грусть"},
     "surprise": {"emoji": "😮", "title": "Удивление"},
-    "neutral":  {"emoji": "😐", "title": "Нейтрально"},
 }
 EMO_KEYS = list(EMOJI_MAP.keys())
 
@@ -195,7 +206,8 @@ async def ws_handler(ws: WebSocket):
             st.progress = target_conf if has_face else 0.0
 
             # зачёт раунда — строго по лучшей эмоции
-            if st.target and best_label == st.target and best_conf >= THRESHOLD:
+            threshold = EMOTION_THRESHOLDS.get(st.target, 0.5)  # используем индивидуальный порог
+            if st.target and best_label == st.target and best_conf >= threshold:
                 st.consecutive_hits += 1
                 if st.consecutive_hits >= CONSECUTIVE_NEEDED:
                     st.history.append(RoundResult(st.target, now()-(st.start_ts or now()), _time.time()))
