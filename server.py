@@ -12,15 +12,15 @@ from fer import FER
 PORT = 8000
 # Индивидуальные пороги для каждой эмоции (сложные эмоции - ниже порог)
 EMOTION_THRESHOLDS = {
-    "angry":    0.35,  # злость сложно изобразить - низкий порог
-    "disgust":  0.4,   # отвращение тоже сложно
-    "fear":     0.4,   # страх сложно
-    "happy":    0.5,   # счастье легко - обычный порог
-    "neutral":  0.45,  # нейтрально довольно легко
-    "sad":      0.45,  # грусть средняя сложность
+    "angry":    0.2,  # злость сложно изобразить - низкий порог
+    #"disgust":  0.2,   # отвращение тоже сложно
+    "fear":     0.05,   # страх сложно
+    "happy":    0.6,   # счастье легко - обычный порог
+    "neutral":  0.5,  # нейтрально довольно легко
+    "sad":      0.25,  # грусть средняя сложность
     "surprise": 0.5,   # удивление легко
 }
-CONSECUTIVE_NEEDED = 3     # подряд кадров для зачёта
+CONSECUTIVE_NEEDED = 3    # подряд кадров для зачёта
 FRAME_DOWNSCALE = 0.75     # уменьшаем кадр для скорости
 GAME_DURATION = 60.0       # секунд
 
@@ -29,7 +29,7 @@ def now(): return _time.monotonic()
 # --------- Эмоции/смайлы ----------
 EMOJI_MAP = {
     "angry":    {"emoji": "😡", "title": "Гнев"},
-    "disgust":  {"emoji": "🤢", "title": "Отвращение"},
+    #"disgust":  {"emoji": "🤢", "title": "Отвращение"},
     "fear":     {"emoji": "😨", "title": "Страх"},
     "happy":    {"emoji": "😀", "title": "Счастье"},
     "neutral":  {"emoji": "😐", "title": "Нейтрально"},
@@ -205,14 +205,14 @@ async def ws_handler(ws: WebSocket):
                     target_conf = max(target_conf, float(em.get(st.target, 0.0)))
             st.progress = target_conf if has_face else 0.0
 
-            # зачёт раунда — строго по лучшей эмоции
+            # зачёт раунда — проверяем уверенность ЦЕЛЕВОЙ эмоции напрямую
             threshold = EMOTION_THRESHOLDS.get(st.target, 0.5)  # используем индивидуальный порог
-            if st.target and best_label == st.target and best_conf >= threshold:
+            if st.target and target_conf >= threshold:
                 st.consecutive_hits += 1
                 if st.consecutive_hits >= CONSECUTIVE_NEEDED:
                     st.history.append(RoundResult(st.target, now()-(st.start_ts or now()), _time.time()))
-                    if best_label not in st.best_snaps or best_conf > st.best_snaps[best_label][0]:
-                        st.best_snaps[best_label] = (best_conf, frame.copy())
+                    if st.target not in st.best_snaps or target_conf > st.best_snaps[st.target][0]:
+                        st.best_snaps[st.target] = (target_conf, frame.copy())
                     st.pick_next()
             else:
                 st.consecutive_hits = 0

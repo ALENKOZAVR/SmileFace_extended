@@ -17,20 +17,17 @@
   .title{font-size:20px;font-weight:700;margin-bottom:8px;display:flex;align-items:center;gap:10px}
   .title::before{content:"";width:10px;height:10px;border-radius:999px;background:linear-gradient(135deg,var(--accent1),var(--accent2))}
 
-  /* Камера — показываем нативный <video>, без перерисовок */
   .videoWrap{
     position:relative;border-radius:14px;overflow:hidden;background:#0b1220;
   }
   #video{
     width:100%; height:auto; display:block;
-    object-fit:cover;            /* красиво заполняет */
+    object-fit:cover;
     transform-origin:center center;
-    backface-visibility:hidden;  /* чуть сглаживает при CSS-трансформациях */
+    backface-visibility:hidden;
   }
-  /* скрытый канвас для отправки кадров */
   #sendCanvas{display:none}
 
-  /* Кнопки */
   .btns{display:flex;gap:12px;margin:12px 0 0;flex-wrap:wrap}
   .btn{
     appearance:none;border:0;color:white;font-weight:700;padding:12px 18px;border-radius:14px;cursor:pointer;
@@ -43,7 +40,6 @@
   .iconbtn{width:46px;height:46px;display:inline-flex;align-items:center;justify-content:center;font-size:22px;padding:0;border-radius:12px;line-height:1;user-select:none}
   .iconrow{display:flex;gap:10px;align-items:center;margin-left:auto}
 
-  /* Правый блок */
   .goalname{font-size:28px;font-weight:700;margin:6px 0 12px 0;opacity:.95}
   .emoji{font-size:240px;display:flex;align-items:center;justify-content:center;min-height:240px;text-align:center}
   .emoji.big{font-size:260px}
@@ -53,13 +49,11 @@
   .gauge{width:100%;height:14px;background:#0b1220;border-radius:999px;overflow:hidden;margin-top:10px}
   .gbar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent1),var(--accent2));transition:width .12s ease}
 
-  /* Режим итога справа */
   #rightBody.result{justify-content:center;align-items:center}
   #rightBody.result #timer,
   #rightBody.result .gauge,
   #rightBody.result #goalName{display:none}
 
-  /* Галерея */
   .gallery{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
   .shot{width:180px}
   .shot img{width:100%;border-radius:10px}
@@ -75,18 +69,26 @@
 <body>
 <div class="wrap">
   <div class="grid">
+
     <!-- Левая карточка -->
     <div class="card" id="left">
       <div class="title">Камера</div>
 
       <div class="videoWrap">
         <video id="video" autoplay playsinline muted></video>
-        <canvas id="sendCanvas"></canvas> <!-- offscreen для отправки -->
+        <canvas id="sendCanvas"></canvas>
       </div>
 
       <div class="btns">
         <button id="grant" class="btn iconbtn" title="Разрешить камеру">🎥</button>
+
+        <!-- ВЫБОР КАМЕРЫ -->
+        <select id="camSelect" class="btn" style="padding:10px 14px;max-width:200px;">
+          <option value="">Загрузка...</option>
+        </select>
+
         <button id="start" class="btn secondary">🚀 Старт</button>
+
         <div class="iconrow">
           <button id="flipBtn" class="btn iconbtn" title="Зеркалить по горизонтали (↔)">↔️</button>
           <button id="rotBtn" class="btn iconbtn" title="Повернуть на 90°">⤴️</button>
@@ -112,44 +114,77 @@
     </div>
   </div>
 </div>
+
 <script>
 let stream=null, ws=null, running=false, sendTimer=null, finished=false, deadlineMs=null;
 let prevTarget=null, hbTimer=null;
 
-// состояния преобразований
 let flipX=false;
-let rotation=0; // 0|90|180|270
+let rotation=0;
 
 function getSid(){
   try{
     let sid=localStorage.getItem('emo_sid');
-    if(!sid){ sid=crypto.randomUUID?crypto.randomUUID():(Date.now().toString(36)+Math.random().toString(36).slice(2)); localStorage.setItem('emo_sid',sid); }
+    if(!sid){
+      sid = crypto.randomUUID ? crypto.randomUUID() :
+          (Date.now().toString(36)+Math.random().toString(36).slice(2));
+      localStorage.setItem('emo_sid',sid);
+    }
     return sid;
-  }catch(e){ return Math.random().toString(36).slice(2); }
+  }catch(e){
+    return Math.random().toString(36).slice(2);
+  }
 }
 const SID=getSid();
 
-function updateStartBtn(){
-  const b=document.getElementById('start');
-  if(finished){ b.disabled=false; b.textContent='🔁 Ещё раз'; }
-  else if(running){ b.disabled=true; b.textContent='⏱️ Игра идёт…'; }
-  else { b.disabled=false; b.textContent='🚀 Старт'; }
+/* === Загружаем камеры === */
+async function loadCameras(){
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const cams = devices.filter(d => d.kind === "videoinput");
+  const sel = document.getElementById("camSelect");
+  sel.innerHTML = "";
+  cams.forEach((cam,i)=>{
+    const opt=document.createElement("option");
+    opt.value = cam.deviceId;
+    opt.textContent = cam.label || `Камера ${i+1}`;
+    sel.appendChild(opt);
+  });
 }
-function updTimer(){
-  if(!deadlineMs){return}
-  const s=Math.max(0,(deadlineMs-Date.now())/1000);
-  document.getElementById('timer').textContent="Осталось: "+s.toFixed(1)+" c";
-}
-setInterval(updTimer,200);
 
-/* ===== Preview: CSS-трансформации только на <video> ===== */
+/* === Запуск камеры по выбранному deviceId === */
+async function ensureCam(){
+  try{
+    const id = document.getElementById("camSelect").value;
+    const constraints = id ? {video:{deviceId:{exact:id}}} : {video:true};
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const v=document.getElementById('video');
+    v.srcObject = stream;
+    await v.play();
+
+    document.getElementById('grant').disabled=true;
+    document.getElementById('grant').textContent='✅';
+
+    applyPreviewTransform();
+  }catch(err){
+    console.error(err);
+  }
+}
+
+navigator.mediaDevices.getUserMedia({video:true})
+  .then(loadCameras)
+  .catch(console.error);
+
+document.getElementById('grant').onclick=ensureCam;
+
+/* === Трансформации предпросмотра === */
 function applyPreviewTransform(){
   const v=document.getElementById('video');
   const scale = flipX ? -1 : 1;
   v.style.transform = `scaleX(${scale}) rotate(${rotation}deg)`;
 }
 
-/* ===== Отправка: рисуем в offscreen-канвас с теми же трансформациями ===== */
+/* === Канвас для отправки кадров === */
 function drawToSendCanvas(){
   const v=document.getElementById('video');
   if(!(v.readyState >= 2)) return;
@@ -158,6 +193,7 @@ function drawToSendCanvas(){
   if(!vw || !vh) return;
 
   const c=document.getElementById('sendCanvas');
+
   const outW = (rotation % 180 === 0) ? vw : vh;
   const outH = (rotation % 180 === 0) ? vh : vw;
 
@@ -168,24 +204,11 @@ function drawToSendCanvas(){
   ctx.save();
   ctx.clearRect(0,0,outW,outH);
   ctx.translate(outW/2, outH/2);
-  ctx.rotate(rotation * Math.PI / 180);
+  ctx.rotate(rotation * Math.PI/180);
   ctx.scale(flipX ? -1 : 1, 1);
   ctx.drawImage(v, -vw/2, -vh/2, vw, vh);
   ctx.restore();
 }
-
-/* ===== Камера ===== */
-async function ensureCam(){
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false});
-    const v=document.getElementById('video');
-    v.srcObject=stream;
-    try{ await v.play(); }catch(_){}
-    document.getElementById('grant').disabled=true; document.getElementById('grant').textContent='✅';
-    applyPreviewTransform(); // сразу применим текущий режим
-  }catch(e){ console.error(e); }
-}
-document.getElementById('grant').onclick=ensureCam;
 
 /* ===== WS ===== */
 function connectWS(){
@@ -197,24 +220,45 @@ function connectWS(){
   ws.onopen=()=>{
     ws.send(JSON.stringify({type:"hello", sid: SID}));
     clearInterval(hbTimer);
-    hbTimer=setInterval(()=>{ if(ws && ws.readyState===1) ws.send(JSON.stringify({type:"hb", sid: SID})) }, 15000);
+    hbTimer=setInterval(()=>{
+      if(ws && ws.readyState===1)
+        ws.send(JSON.stringify({type:"hb", sid: SID}));
+    },15000);
   };
+
   ws.onmessage=(ev)=>{
     const msg=JSON.parse(ev.data);
+
     if(msg.type==="state"){
       document.getElementById('rightBody').classList.remove('result');
       document.getElementById('rightTitle').textContent="Цель";
+
       if(msg.target_emoji && msg.target_title){
-        document.getElementById('goalName').textContent = msg.target_emoji + " " + msg.target_title;
+        document.getElementById('goalName').textContent =
+          msg.target_emoji + " " + msg.target_title;
       }
-      if(msg.target_emoji){ prevTarget=msg.target_emoji; document.getElementById('emoji').textContent=msg.target_emoji; }
-      if(typeof msg.remain_ms==="number"){ deadlineMs=Date.now()+msg.remain_ms; }
+      if(msg.target_emoji){
+        prevTarget = msg.target_emoji;
+        document.getElementById('emoji').textContent = msg.target_emoji;
+      }
+
+      if(typeof msg.remain_ms==="number"){
+        deadlineMs = Date.now() + msg.remain_ms;
+      }
+
       const prog=Math.max(0,Math.min(1,msg.progress||0));
-      document.getElementById('gbar').style.width=(prog*100).toFixed(0)+"%";
-      if(msg.started && running && ws.readyState===1){ pump(); }
+      document.getElementById('gbar').style.width=(prog*100)+"%";
+
+      if(msg.started && running && ws.readyState===1){
+        pump();
+      }
     }
+
     if(msg.type==="final"){
-      finished=true; running=false; updateStartBtn();
+      finished=true;
+      running=false;
+      updateStartBtn();
+
       document.getElementById('rightTitle').textContent="Результат";
       document.getElementById('goalName').textContent="";
       document.getElementById('emoji').textContent=msg.total;
@@ -222,28 +266,50 @@ function connectWS(){
       document.getElementById('rightBody').classList.add('result');
 
       document.getElementById('final').textContent=`Итог: ${msg.total} смайлик(ов) за ${msg.duration} сек`;
-      const gal=document.getElementById('gallery'); gal.innerHTML="";
+
+      const gal=document.getElementById('gallery');
+      gal.innerHTML="";
       msg.gallery.forEach(g=>{
-        gal.innerHTML+=`<div class="shot"><img src="${g.data_url}"/><div class="cap">${g.emoji} ${g.title}</div></div>`;
+        gal.innerHTML +=
+          `<div class="shot"><img src="${g.data_url}"/><div class="cap">${g.emoji} ${g.title}</div></div>`;
       });
     }
   };
 }
 connectWS();
 
+function updateStartBtn(){
+  const b=document.getElementById('start');
+  if(finished){ b.disabled=false; b.textContent='🔁 Ещё раз'; }
+  else if(running){ b.disabled=true; b.textContent='⏱️ Игра идёт…'; }
+  else { b.disabled=false; b.textContent='🚀 Старт'; }
+}
+
+function updTimer(){
+  if(!deadlineMs) return;
+  const s = Math.max(0,(deadlineMs-Date.now())/1000);
+  document.getElementById('timer').textContent="Осталось: "+s.toFixed(1)+" c";
+}
+setInterval(updTimer,200);
+
 function sendStart(){
   if(ws && ws.readyState===1){
     ws.send(JSON.stringify({type:"start", sid: SID}));
   }else{
     connectWS();
-    setTimeout(()=>{ if(ws && ws.readyState===1) ws.send(JSON.stringify({type:"start", sid: SID})); }, 300);
+    setTimeout(()=>{
+      if(ws && ws.readyState===1)
+        ws.send(JSON.stringify({type:"start", sid: SID}));
+    },300);
   }
 }
 
-/* ===== Управление ===== */
 document.getElementById('start').onclick=()=>{
   if(!stream){ ensureCam(); return; }
-  finished=false; running=true; updateStartBtn();
+  finished=false;
+  running=true;
+  updateStartBtn();
+
   document.getElementById('rightBody').classList.remove('result');
   document.getElementById('rightTitle').textContent="Цель";
   document.getElementById('emoji').classList.remove("big");
@@ -251,24 +317,36 @@ document.getElementById('start').onclick=()=>{
   document.getElementById('gallery').innerHTML="";
   deadlineMs=null;
   document.getElementById('gbar').style.width="0%";
+
   sendStart();
   pump();
 };
-document.getElementById('flipBtn').onclick=()=>{ flipX=!flipX; applyPreviewTransform(); };
-document.getElementById('rotBtn').onclick=()=>{ rotation=(rotation+90)%360; applyPreviewTransform(); };
 
-/* ===== Памп: отправляем кадры, не трогая предпросмотр ===== */
+document.getElementById('flipBtn').onclick=()=>{
+  flipX=!flipX;
+  applyPreviewTransform();
+};
+document.getElementById('rotBtn').onclick=()=>{
+  rotation=(rotation+90)%360;
+  applyPreviewTransform();
+};
+
 function pump(){
   clearInterval(sendTimer);
   sendTimer=setInterval(()=>{
     if(!running || !ws || ws.readyState!==1 || finished) return;
+
     const v=document.getElementById('video');
-    if(!(v.readyState >= 2)) return;
+    if(!(v.readyState>=2)) return;
 
     drawToSendCanvas();
     const c=document.getElementById('sendCanvas');
-    c.toBlob(b=>{ if(b) ws.send(b); },"image/jpeg",0.5);
-  }, 200);
+
+    c.toBlob(b=>{
+      if(b) ws.send(b);
+    },"image/jpeg",0.5);
+
+  },200);
 }
 </script>
 </body>
